@@ -3,15 +3,12 @@ use std::ffi;
 use fs_extra;
 use comrak::{markdown_to_html, ComrakOptions};
 use clap::Parser;
-
-// fn gen_output_filename(dir_entry: &std::fs::DirEntry) -> std::ffi::OsString {
-//     return dir_entry.file_name();
-// }
+use devserver_lib;
+use minijinja::{context, Environment};
 
 struct Item {
     title: String,
     path: String,
-    // contents: String
 }
 
 #[derive(Parser, Debug)]
@@ -22,8 +19,13 @@ struct Args {
 
     #[arg(short, long)]
     output_dir: String,
-}
 
+    #[arg(short, long)]
+    serve: bool,
+
+    #[arg(short, long)]
+    port: Option<u32>
+}
 
 fn sanitize_filename(filename: &String) -> String {
     let allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".to_string();
@@ -35,12 +37,15 @@ fn sanitize_filename(filename: &String) -> String {
             result.push('_');
         }
     }
-    return result;
+    return result.to_lowercase()
+        .trim_start_matches('_')
+        .trim_end_matches('_')
+        .to_string();
 }
 
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
-    let paths = fs::read_dir(args.input_dir).unwrap();
+    let paths = fs::read_dir(&args.input_dir).unwrap();
     fs_extra::dir::create(&args.output_dir, true).expect("Cannot create output dir");
 
     let mut items = Vec::new();
@@ -51,32 +56,38 @@ fn main() -> std::io::Result<()> {
     options.render.unsafe_ = true;
 
     for path in paths {
-        // let dir_entry = ;
-
-        let mut filename: String = path.as_ref().unwrap().file_name().into_string().unwrap();
-        let final_path = sanitize_filename(&filename);
-        
-        let filepath = path.as_ref().unwrap().path();
-
+        let md_filepath = path.as_ref().unwrap().path(); //  blog/file?a.md
         let is_file = path.as_ref().unwrap().file_type().unwrap().is_file();
-        if is_file && filepath.extension() == Some(ffi::OsStr::new("md")) {
-            filename.truncate(filename.len() - 3);
 
-            let contents = fs::read_to_string(filepath)
+        if is_file && md_filepath.extension() == Some(ffi::OsStr::new("md")) {
+            let md_filename = path.as_ref().unwrap().file_name().into_string().unwrap(); // file?a.md
+            let title = md_filename[..&md_filename.len()-3].to_owned(); // file?a
+            let md_filename_sanitized = sanitize_filename(&title);  // file_a
+
+            let contents = fs::read_to_string(md_filepath)
                 .expect("Should have been able to read the file");
-            // let html : String = markdown::to_html(&contents);
             let html = markdown_to_html(&contents, &options);
-            
-            fs_extra::dir::create(format!("{}/{}", &args.output_dir, final_path), true)
+
+            fs_extra::dir::create(format!("{}/{}", &args.output_dir, md_filename_sanitized), true)
                 .expect("Cannot create output dir");
 
-            let path = format!("{}/{}/index.html", args.output_dir, final_path);
+            for line in contents.lines() {
+                if &line.len() > &3 && &line[..2] == "![" {
+                    let img_file_path = &line[4..&line.len()-1];
+                    println!("{}", format!("{}/attachments/{}", &args.input_dir, &img_file_path));
+                    fs::copy(
+                        format!("{}/attachments/{}", &args.input_dir, &img_file_path),
+                        format!("{}/{}/{}", &args.output_dir, &md_filename_sanitized, &img_file_path)
+                    )?;
+                }
+            }
+
+            let path = format!("{}/{}/index.html", args.output_dir, md_filename_sanitized);
             fs::write(path, &html).expect("Unable to write file");
 
             let new_post = Item {
-                title: filename,
-                path: final_path,
-                // contents: html
+                title,
+                path: md_filename_sanitized
             };
             items.push(new_post);
         }
@@ -84,13 +95,27 @@ fn main() -> std::io::Result<()> {
     }
 
     // Write index.html
+    let mut env = Environment::new();
+    env.add_template("hello.txt", "Hello {{ name }}!").unwrap();
+    let template = env.get_template("hello.txt").unwrap();
+
     let mut index_html_list = Vec::new();
     for item in &items {
-        index_html_list.push(format!("<li><a href=\"{}\">{}</a></li>", item.path.clone(), item.title.clone()));
+        index_html_list.push(format!("<li><a href=\"{}/\">{}</a></li>", item.path.clone(), item.title.clone()));
     }
     let joined = index_html_list.join("\n");
-    fs::write("site/index.html", &joined).expect("Unable to write file");
+    let result = template.render(context!(name => joined)).unwrap();
+    fs::write("site/index.html", &result).expect("Unable to write file");
 
-    println!("{}", joined);
+
+    if args.serve {
+        let mut port: u32 = 8090;
+        if args.port.is_some() {
+            port = args.port.unwrap();
+        }
+        println!("\nServing at http://localhost:{}", port);
+        devserver_lib::run(&"localhost", port, &"site", true, "");
+    }
+
     Ok(())
 }
