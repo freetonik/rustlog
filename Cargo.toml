@@ -11,3 +11,4 @@ comrak = "0.16"
 fs_extra = "1.3.0"
 devserver_lib = "0.4.1"
 minijinja = "0.30.5"
+serde = { version = "1.0.130", features = ["derive"] }

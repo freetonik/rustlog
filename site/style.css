@@ -1,0 +1,37 @@
+
+body {
+  font-family: -apple-system,system-ui,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  line-height: 1.4;
+  font-size: 16px;
+  margin: 0;
+  background-image: radial-gradient(#53575712 1px, transparent 0);
+  background-size: 8px 8px;
+  background-color: #c0c7c842;
+  border-top: 1rem solid #0000A8;
+}
+
+main {
+  margin: 50px auto;
+  max-width: 650px;
+  padding: 16px;
+}
+
+img {
+  max-width: 100%;
+}
+
+div.item {
+  display: flex;
+  margin-bottom: 0.5em;
+}
+
+div.date {
+  margin-right: 1em;
+}
+
+@media screen and (max-width: 600px) {
+  main {
+    margin: 10px auto;
+    max-width: 100%;
+  }
+}
