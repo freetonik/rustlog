@@ -6,6 +6,7 @@ use minijinja::{context, AutoEscape, Environment};
 use serde::Serialize;
 use std::ffi;
 use std::fs;
+use std::process::exit;
 
 const TEMPLATE_SINGLE: &str = r#"<!doctype html>
 <html>
@@ -17,6 +18,7 @@ const TEMPLATE_SINGLE: &str = r#"<!doctype html>
 </head>
 <body>
     <main>
+    <h1>{{ title }}</h1>
     {{ body }}
     </main>
 </body>
@@ -32,9 +34,10 @@ const TEMPLATE_INDEX: &str = r#"<!doctype html>
 </head>
 <body>
     <main>
+    <h1>{{ title }}</h1>
     <ul class="nav">
     {% for item in items %}
-      <li><a href="{{ item.path }}">{{ item.title }}</a></li>
+      <li>{{ item.date }} <a href="{{ item.path }}">{{ item.title }}</a></li>
     {% endfor %}
     </ul>
     </main>
@@ -83,6 +86,8 @@ div.date {
 struct Item {
     title: String,
     path: String,
+    date: String,
+    date_internal: String
 }
 
 #[derive(Parser, Debug)]
@@ -99,6 +104,12 @@ struct Args {
 
     #[arg(short, long)]
     port: Option<u32>,
+}
+
+fn validate_dateline(line: &str) -> bool {
+    let length_ok = line.len() == 10;
+    let line_ok = line.chars().nth(2).unwrap() == '.' && line.chars().nth(5).unwrap() == '.';
+    return length_ok && line_ok;
 }
 
 fn sanitize_filename(filename: &String) -> String {
@@ -119,16 +130,24 @@ fn sanitize_filename(filename: &String) -> String {
 }
 
 fn main() -> std::io::Result<()> {
+    println!(r#"
+              _ _____ __    __
+   ____ ___  (_) / (_) /_  / /___  ____ _
+  / __ `__ \/ / / / / __ \/ / __ \/ __ `/
+ / / / / / / / / / / /_/ / / /_/ / /_/ /
+/_/ /_/ /_/_/_/_/_/_.___/_/\____/\__, /
+                                /____/
+    "#);
     let args = Args::parse();
     let paths = fs::read_dir(&args.input_dir).unwrap();
     fs_extra::dir::create(&args.output_dir, true).expect("Cannot create output dir");
 
     let mut items = Vec::new();
 
-    let mut options = ComrakOptions::default();
-    options.extension.strikethrough = true;
-    options.extension.tagfilter = false;
-    options.render.unsafe_ = true;
+    let mut md_options = ComrakOptions::default();
+    md_options.extension.strikethrough = true;
+    md_options.extension.tagfilter = false;
+    md_options.render.unsafe_ = true;
 
     let mut template_env = Environment::new();
     template_env.set_auto_escape_callback(|_name| AutoEscape::None);
@@ -148,7 +167,9 @@ fn main() -> std::io::Result<()> {
 
             let contents =
                 fs::read_to_string(md_filepath).expect("Should have been able to read the file");
-            let html = markdown_to_html(&contents, &options);
+            let html = markdown_to_html(&contents, &md_options);
+            let mut date:String = "".to_string();
+            let mut date_internal:String = "".to_string();
 
             fs_extra::dir::create(
                 format!("{}/{}", &args.output_dir, md_filename_sanitized),
@@ -156,18 +177,25 @@ fn main() -> std::io::Result<()> {
             )
             .expect("Cannot create output dir");
 
-            let c = contents.lines().count();
+            let last_line_number = contents.lines().count() - 1;
             for line in contents.lines().enumerate() {
-                if line.0 == c-1 {
-                    println!("{}", c.to_string());
-                    println!("{}", &line.1);
+                let line_number = line.0;
+                let line_content = line.1;
+                
+                // getting date
+                if line_number == last_line_number {
+                    if validate_dateline(&line_content) {
+                        println!("{}", md_filename);
+                    } else {
+                        eprintln!("File '{}' does not contain date as DD.MM.YYYY on the last line", md_filename);
+                        exit(1);
+                    }
+                    date = line_content.to_string();
+                    date_internal = format!("{}{}{}", &line_content[6..10], &line_content[3..5], &line_content[0..2]);
                 }
-                if &line.1.len() > &3 && line.1.starts_with("![") {
-                    let img_file_path = &line.1[4..&line.1.len() - 1];
-                    println!(
-                        "{}",
-                        format!("{}/attachments/{}", &args.input_dir, &img_file_path)
-                    );
+                // getting images
+                if &line_content.len() > &6 && line_content.starts_with("![") {
+                    let img_file_path = &line_content[4..&line_content.len() - 1];
                     fs::copy(
                         format!("{}/attachments/{}", &args.input_dir, &img_file_path),
                         format!(
@@ -178,30 +206,33 @@ fn main() -> std::io::Result<()> {
                 }
             }
 
-            let template = template_env.get_template("single.html").unwrap();
-            let result = template
-                .render(context!(title => "Rabla!", body => &html))
+            let single_template = template_env.get_template("single.html").unwrap();
+            let rendered_html = single_template
+                .render(context!(title => &title, body => &html))
                 .unwrap();
 
             let path = format!("{}/{}/index.html", args.output_dir, md_filename_sanitized);
-            fs::write(path, &result).expect("Unable to write file");
+            fs::write(path, &rendered_html).expect("Unable to write file");
 
-            let new_post = Item {
-                title: title,
+            items.push(Item {
+                title,
+                date: format!("{}/{}", &date[3..5], &date[8..10]),
+                date_internal,
                 path: format!("{}/", md_filename_sanitized),
-            };
-            items.push(new_post);
+            });
         }
     }
 
+    items.sort_by(|a, b| b.date_internal.cmp(&a.date_internal));
+
     // Write index.html & style.css
     template_env.add_template("index.html", TEMPLATE_INDEX).unwrap();
-    let template = template_env.get_template("index.html").unwrap();
+    let index_template = template_env.get_template("index.html").unwrap();
 
-    let result = template
-        .render(context!(title => "Rabla!", items => items))
+    let rendered_html = index_template
+        .render(context!(title => "Rakhim's blog", items => items))
         .unwrap();
-    fs::write("site/index.html", &result).expect("Unable to write file");
+    fs::write("site/index.html", &rendered_html).expect("Unable to write file");
     fs::write("site/style.css", TEMPLATE_STYLE).expect("Unable to write file");
 
     if args.serve {
