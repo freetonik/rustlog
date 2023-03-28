@@ -106,6 +106,15 @@ struct Args {
     port: Option<u32>,
 }
 
+fn extract_tags(tag_string: &str) -> Vec<String> {
+    let tags: Vec<String> = tag_string
+        .split_whitespace()
+        .filter(|&s| s.starts_with('#'))
+        .map(|s| s.trim_start_matches('#').to_string())
+        .collect();
+    tags
+}
+
 fn validate_dateline(line: &str) -> bool {
     let length_ok = line.len() == 10;
     let line_ok = line.chars().nth(2).unwrap() == '.' && line.chars().nth(5).unwrap() == '.';
@@ -181,7 +190,7 @@ fn main() -> std::io::Result<()> {
             for line in contents.lines().enumerate() {
                 let line_number = line.0;
                 let line_content = line.1;
-                
+
                 // getting date
                 if line_number == last_line_number {
                     if validate_dateline(&line_content) {
@@ -246,3 +255,8 @@ fn main() -> std::io::Result<()> {
 
     Ok(())
 }
+
+// TODO
+// move from folder-based to .html based structure
+// provide option to copy static files
+// generate tag listing pages
