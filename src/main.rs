@@ -106,7 +106,7 @@ struct Args {
     port: Option<u32>,
 }
 
-fn extract_tags(tag_string: &str) -> Vec<String> {
+fn _extract_tags(tag_string: &str) -> Vec<String> {
     let tags: Vec<String> = tag_string
         .split_whitespace()
         .filter(|&s| s.starts_with('#'))
@@ -174,17 +174,12 @@ fn main() -> std::io::Result<()> {
             let title = md_filename[..&md_filename.len() - 3].to_owned(); // file?a
             let md_filename_sanitized = sanitize_filename(&title); // file_a
 
-            let contents =
-                fs::read_to_string(md_filepath).expect("Should have been able to read the file");
+            let contents = fs::read_to_string(md_filepath)
+                    .expect("Should have been able to read the file");
             let html = markdown_to_html(&contents, &md_options);
             let mut date:String = "".to_string();
             let mut date_internal:String = "".to_string();
 
-            fs_extra::dir::create(
-                format!("{}/{}", &args.output_dir, md_filename_sanitized),
-                true,
-            )
-            .expect("Cannot create output dir");
 
             let last_line_number = contents.lines().count() - 1;
             for line in contents.lines().enumerate() {
@@ -202,17 +197,6 @@ fn main() -> std::io::Result<()> {
                     date = line_content.to_string();
                     date_internal = format!("{}{}{}", &line_content[6..10], &line_content[3..5], &line_content[0..2]);
                 }
-                // getting images
-                if &line_content.len() > &6 && line_content.starts_with("![") {
-                    let img_file_path = &line_content[4..&line_content.len() - 1];
-                    fs::copy(
-                        format!("{}/attachments/{}", &args.input_dir, &img_file_path),
-                        format!(
-                            "{}/{}/{}",
-                            &args.output_dir, &md_filename_sanitized, &img_file_path
-                        ),
-                    )?;
-                }
             }
 
             let single_template = template_env.get_template("single.html").unwrap();
@@ -220,14 +204,14 @@ fn main() -> std::io::Result<()> {
                 .render(context!(title => &title, body => &html))
                 .unwrap();
 
-            let path = format!("{}/{}/index.html", args.output_dir, md_filename_sanitized);
+            let path = format!("{}/{}.html", args.output_dir, md_filename_sanitized);
             fs::write(path, &rendered_html).expect("Unable to write file");
 
             items.push(Item {
                 title,
                 date: format!("{}/{}", &date[3..5], &date[8..10]),
                 date_internal,
-                path: format!("{}/", md_filename_sanitized),
+                path: format!("{}.html", md_filename_sanitized),
             });
         }
     }
